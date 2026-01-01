@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import get_settings
-from src.routers import patients, schedule, messages, import_, encounters
+from src.routers import patients, schedule, messages, import_, encounters, learning
 
 
 @asynccontextmanager
@@ -48,6 +48,7 @@ app.include_router(schedule.router)
 app.include_router(messages.router)
 app.include_router(import_.router)
 app.include_router(encounters.router)
+app.include_router(learning.router)
 
 
 @app.get("/")
@@ -77,6 +78,7 @@ async def api_info():
       "schedule": "/api/schedule",
       "messages": "/api/messages",
       "import": "/api/import",
+      "learning": "/api/learning",
     },
   }
 
