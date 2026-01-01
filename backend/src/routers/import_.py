@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from src.db.supabase import SupabaseDB
 from src.importers.oread_json import OreadImporter
 from src.importers.fhir_bundle import FHIRBundleImporter
+from src.importers.ccda import CCDAImporter
 
 router = APIRouter(prefix="/api/import", tags=["import"])
 
@@ -213,6 +214,73 @@ async def import_fhir_bundle(file: UploadFile = File(...)) -> ImportResult:
   except json.JSONDecodeError as e:
     db.update_import_record(import_id, "failed", error=f"Invalid JSON: {str(e)}")
     raise HTTPException(status_code=400, detail=f"Invalid JSON file: {str(e)}")
+  except Exception as e:
+    db.update_import_record(import_id, "failed", error=str(e))
+    raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+
+
+@router.post("/ccda")
+async def import_ccda_document(file: UploadFile = File(...)) -> ImportResult:
+  """
+  Import a C-CDA 2.1 XML document.
+
+  Expects a Consolidated CDA document with patient and clinical sections.
+  Validates all data before inserting. Rolls back on failure.
+
+  Supported sections:
+  - Patient demographics (recordTarget)
+  - Problems (2.16.840.1.113883.10.20.22.2.5.1)
+  - Medications (2.16.840.1.113883.10.20.22.2.1.1)
+  - Allergies (2.16.840.1.113883.10.20.22.2.6.1)
+  - Immunizations (2.16.840.1.113883.10.20.22.2.2.1)
+  - Encounters (2.16.840.1.113883.10.20.22.2.22.1)
+  - Vital Signs (2.16.840.1.113883.10.20.22.2.4.1)
+  - Results (2.16.840.1.113883.10.20.22.2.3.1)
+  """
+  if not file.filename.endswith(".xml"):
+    raise HTTPException(status_code=400, detail="File must be an XML file")
+
+  db = SupabaseDB()
+
+  # Create import record
+  import_record = db.create_import_record(file.filename, "ccda")
+  import_id = import_record.data[0]["id"]
+
+  try:
+    # Read the file content
+    content = await file.read()
+    xml_content = content.decode("utf-8")
+
+    # Import the C-CDA document
+    importer = CCDAImporter(db)
+    result = importer.import_document(xml_content, source_file=file.filename)
+
+    if result.success:
+      db.update_import_record(import_id, "completed", patient_count=1)
+      return ImportResult(
+        success=True,
+        import_id=import_id,
+        patient_count=1,
+        details={
+          "patient_id": result.patient_id,
+          "counts": result.counts,
+          "warnings": [w.to_dict() for w in result.warnings],
+        },
+      )
+    else:
+      error_msg = "; ".join(result.errors)
+      if result.warnings:
+        error_msg += f" ({len(result.warnings)} warnings)"
+      db.update_import_record(import_id, "failed", error=error_msg)
+      return ImportResult(
+        success=False,
+        import_id=import_id,
+        errors=result.errors,
+        details={
+          "warnings": [w.to_dict() for w in result.warnings],
+        },
+      )
+
   except Exception as e:
     db.update_import_record(import_id, "failed", error=str(e))
     raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")

@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
-import { Upload, File, CheckCircle, XCircle, Clock } from 'lucide-react';
-import { importOreadFile, importFhirBundle } from '../lib/api';
+import { Upload, File, CheckCircle, XCircle } from 'lucide-react';
+import { importOreadFile, importFhirBundle, importCCDA } from '../lib/api';
 
 interface ImportResult {
   success: boolean;
@@ -57,37 +57,56 @@ export default function Import() {
     const newResults: ImportResult[] = [];
 
     for (const file of Array.from(files)) {
-      if (!file.name.endsWith('.json')) {
+      const isJson = file.name.endsWith('.json');
+      const isXml = file.name.endsWith('.xml');
+
+      if (!isJson && !isXml) {
         newResults.push({
           success: false,
           patient_count: 0,
-          errors: [`${file.name}: Not a JSON file`],
+          errors: [`${file.name}: Must be a JSON or XML file`],
         });
         continue;
       }
 
       try {
-        // Read file to detect format
         const text = await file.text();
-        const json = JSON.parse(text);
-        const isFhirBundle = json.resourceType === 'Bundle';
 
-        // Create a new file from the text (since we already read it)
-        const newFile = new window.File([text], file.name, { type: 'application/json' });
+        if (isXml) {
+          // C-CDA XML file
+          const newFile = new window.File([text], file.name, { type: 'application/xml' });
+          const result = await importCCDA(newFile);
 
-        // Route to appropriate importer
-        const result = isFhirBundle
-          ? await importFhirBundle(newFile)
-          : await importOreadFile(newFile);
+          newResults.push({
+            ...result,
+            details: {
+              ...result.details,
+              filename: file.name,
+              format: 'C-CDA 2.1',
+            },
+          });
+        } else {
+          // JSON file - detect if FHIR Bundle or Oread
+          const json = JSON.parse(text);
+          const isFhirBundle = json.resourceType === 'Bundle';
 
-        newResults.push({
-          ...result,
-          details: {
-            ...result.details,
-            filename: file.name,
-            format: isFhirBundle ? 'FHIR R5' : 'Oread JSON',
-          },
-        });
+          // Create a new file from the text (since we already read it)
+          const newFile = new window.File([text], file.name, { type: 'application/json' });
+
+          // Route to appropriate importer
+          const result = isFhirBundle
+            ? await importFhirBundle(newFile)
+            : await importOreadFile(newFile);
+
+          newResults.push({
+            ...result,
+            details: {
+              ...result.details,
+              filename: file.name,
+              format: isFhirBundle ? 'FHIR R5' : 'Oread JSON',
+            },
+          });
+        }
       } catch (err) {
         newResults.push({
           success: false,
@@ -109,7 +128,7 @@ export default function Import() {
           Import Patients
         </h1>
         <p style={{ color: 'var(--text-secondary)' }} className="mt-1">
-          Import patient data from oread JSON files
+          Import patient data from Oread JSON, FHIR R5, or C-CDA files
         </p>
       </div>
 
@@ -130,13 +149,13 @@ export default function Import() {
           style={{ color: isDragging ? 'var(--accent)' : 'var(--text-tertiary)' }}
         />
         <p className="text-lg font-display font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
-          {isDragging ? 'Drop files here' : 'Drag & drop oread JSON files'}
+          {isDragging ? 'Drop files here' : 'Drag & drop patient files'}
         </p>
         <p style={{ color: 'var(--text-tertiary)' }} className="mb-6">or</p>
         <label className="inline-block">
           <input
             type="file"
-            accept=".json"
+            accept=".json,.xml"
             multiple
             onChange={handleFileSelect}
             className="hidden"
@@ -249,8 +268,8 @@ export default function Import() {
             FHIR R5 Bundle (.json)
           </li>
           <li className="flex items-center gap-2">
-            <Clock className="w-4 h-4" style={{ color: 'var(--text-tertiary)' }} />
-            C-CDA documents (coming soon)
+            <CheckCircle className="w-4 h-4" style={{ color: 'var(--clinical-success)' }} />
+            C-CDA 2.1 documents (.xml)
           </li>
         </ul>
       </div>
