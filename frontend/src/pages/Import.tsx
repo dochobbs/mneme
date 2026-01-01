@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Upload, File, CheckCircle, XCircle, Clock } from 'lucide-react';
-import { importOreadFile } from '../lib/api';
+import { importOreadFile, importFhirBundle } from '../lib/api';
 
 interface ImportResult {
   success: boolean;
@@ -67,10 +67,26 @@ export default function Import() {
       }
 
       try {
-        const result = await importOreadFile(file);
+        // Read file to detect format
+        const text = await file.text();
+        const json = JSON.parse(text);
+        const isFhirBundle = json.resourceType === 'Bundle';
+
+        // Create a new file from the text (since we already read it)
+        const newFile = new window.File([text], file.name, { type: 'application/json' });
+
+        // Route to appropriate importer
+        const result = isFhirBundle
+          ? await importFhirBundle(newFile)
+          : await importOreadFile(newFile);
+
         newResults.push({
           ...result,
-          details: { ...result.details, filename: file.name },
+          details: {
+            ...result.details,
+            filename: file.name,
+            format: isFhirBundle ? 'FHIR R5' : 'Oread JSON',
+          },
         });
       } catch (err) {
         newResults.push({
@@ -229,8 +245,8 @@ export default function Import() {
             Oread JSON patient files (.json)
           </li>
           <li className="flex items-center gap-2">
-            <Clock className="w-4 h-4" style={{ color: 'var(--text-tertiary)' }} />
-            FHIR R5 Bundle (coming soon)
+            <CheckCircle className="w-4 h-4" style={{ color: 'var(--clinical-success)' }} />
+            FHIR R5 Bundle (.json)
           </li>
           <li className="flex items-center gap-2">
             <Clock className="w-4 h-4" style={{ color: 'var(--text-tertiary)' }} />

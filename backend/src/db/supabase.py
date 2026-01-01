@@ -172,6 +172,23 @@ class SupabaseDB:
     """Insert a new patient."""
     return self.client.table("patients").insert(data).execute()
 
+  def delete_patient(self, patient_id: str):
+    """
+    Delete a patient and all related records.
+
+    Uses PostgreSQL CASCADE to automatically delete all child records
+    (conditions, medications, allergies, encounters, observations,
+    immunizations, messages, growth_data).
+
+    Used for rollback on failed imports.
+    """
+    return (
+      self.client.table("patients")
+      .delete()
+      .eq("id", patient_id)
+      .execute()
+    )
+
   def insert_conditions(self, data: list[dict]):
     """Insert conditions."""
     if not data:

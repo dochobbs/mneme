@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from src.db.supabase import SupabaseDB
 from src.importers.oread_json import OreadImporter
+from src.importers.fhir_bundle import FHIRBundleImporter
 
 router = APIRouter(prefix="/api/import", tags=["import"])
 
@@ -145,6 +146,76 @@ async def import_oread_batch(files: list[UploadFile] = File(...)) -> ImportResul
     },
     errors=results["errors"],
   )
+
+
+@router.post("/fhir")
+async def import_fhir_bundle(file: UploadFile = File(...)) -> ImportResult:
+  """
+  Import a FHIR R5 Bundle JSON file.
+
+  Expects a Bundle with Patient and related clinical resources.
+  Validates all data before inserting. Rolls back on failure.
+
+  Supported resources:
+  - Patient
+  - Condition
+  - MedicationStatement / MedicationRequest
+  - AllergyIntolerance
+  - Encounter
+  - Observation
+  - Immunization
+  - Communication
+  """
+  if not file.filename.endswith(".json"):
+    raise HTTPException(status_code=400, detail="File must be a JSON file")
+
+  db = SupabaseDB()
+
+  # Create import record
+  import_record = db.create_import_record(file.filename, "fhir-r5")
+  import_id = import_record.data[0]["id"]
+
+  try:
+    # Read and parse the file
+    content = await file.read()
+    data = json.loads(content.decode("utf-8"))
+
+    # Import the bundle
+    importer = FHIRBundleImporter(db)
+    result = importer.import_bundle(data, source_file=file.filename)
+
+    if result.success:
+      db.update_import_record(import_id, "completed", patient_count=1)
+      return ImportResult(
+        success=True,
+        import_id=import_id,
+        patient_count=1,
+        details={
+          "patient_id": result.patient_id,
+          "counts": result.counts,
+          "warnings": [w.to_dict() for w in result.warnings],
+        },
+      )
+    else:
+      error_msg = "; ".join(result.errors)
+      if result.warnings:
+        error_msg += f" ({len(result.warnings)} warnings)"
+      db.update_import_record(import_id, "failed", error=error_msg)
+      return ImportResult(
+        success=False,
+        import_id=import_id,
+        errors=result.errors,
+        details={
+          "warnings": [w.to_dict() for w in result.warnings],
+        },
+      )
+
+  except json.JSONDecodeError as e:
+    db.update_import_record(import_id, "failed", error=f"Invalid JSON: {str(e)}")
+    raise HTTPException(status_code=400, detail=f"Invalid JSON file: {str(e)}")
+  except Exception as e:
+    db.update_import_record(import_id, "failed", error=str(e))
+    raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
 
 
 @router.get("/history")

@@ -215,6 +215,23 @@ export async function importOreadFile(file: File): Promise<any> {
   return response.json();
 }
 
+export async function importFhirBundle(file: File): Promise<any> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${API_BASE}/import/fhir`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Import failed' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
 export async function getImportHistory(): Promise<any[]> {
   return fetchAPI<any[]>('/import/history');
 }
