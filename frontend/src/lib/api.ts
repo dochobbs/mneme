@@ -218,3 +218,71 @@ export async function importOreadFile(file: File): Promise<any> {
 export async function getImportHistory(): Promise<any[]> {
   return fetchAPI<any[]>('/import/history');
 }
+
+// Generated Encounters (Syrinx integration)
+
+export interface GenerateEncounterRequest {
+  patient_id: string;
+  chief_complaint: string;
+  encounter_type: 'acute' | 'well-child' | 'mental-health' | 'follow-up';
+  duration: 'short' | 'medium' | 'long';
+  error_type?: 'clinical' | 'communication' | null;
+}
+
+export interface ScriptLine {
+  speaker: string;
+  direction?: string;
+  line: string;
+}
+
+export interface GeneratedEncounter {
+  id: string;
+  patient_id: string;
+  patient_name: string;
+  chief_complaint: string;
+  metadata: {
+    encounter_type: string;
+    duration: string;
+    clinical_focus?: string;
+    speakers?: { name: string; role: string }[];
+  };
+  script: ScriptLine[];
+  audio_url?: string;
+}
+
+export interface SavedEncounter {
+  id: string;
+  patient_id: string;
+  syrinx_id: string;
+  encounter_type: string;
+  chief_complaint: string;
+  metadata: any;
+  script: ScriptLine[];
+  audio_url?: string;
+  created_at: string;
+}
+
+export async function generateEncounter(request: GenerateEncounterRequest): Promise<GeneratedEncounter> {
+  return fetchAPI<GeneratedEncounter>('/encounters/generate', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+export async function saveEncounter(encounter: {
+  patient_id: string;
+  syrinx_id: string;
+  encounter_type: string;
+  chief_complaint: string;
+  metadata: any;
+  script: ScriptLine[];
+}): Promise<{ id: string; status: string }> {
+  return fetchAPI('/encounters/save', {
+    method: 'POST',
+    body: JSON.stringify(encounter),
+  });
+}
+
+export async function getGeneratedEncounters(patientId: string): Promise<SavedEncounter[]> {
+  return fetchAPI<SavedEncounter[]>(`/encounters/${patientId}/generated`);
+}

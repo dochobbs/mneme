@@ -50,14 +50,23 @@ export default function PatientList() {
 
       {/* Search */}
       <div className="mb-6">
-        <div className="relative max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: 'var(--text-tertiary)' }} />
+        <div className="relative max-w-md flex items-center">
+          <Search
+            className="absolute w-5 h-5 pointer-events-none"
+            style={{ color: 'var(--text-tertiary)', left: '12px' }}
+          />
           <input
             type="text"
             placeholder="Search patients..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="input pl-10"
+            className="w-full py-3 pr-4 rounded-lg"
+            style={{
+              paddingLeft: '44px',
+              backgroundColor: 'var(--bg-card)',
+              border: '1px solid var(--border)',
+              color: 'var(--text-primary)',
+            }}
           />
         </div>
       </div>

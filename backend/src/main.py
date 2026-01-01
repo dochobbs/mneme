@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import get_settings
-from src.routers import patients, schedule, messages, import_
+from src.routers import patients, schedule, messages, import_, encounters
 
 
 @asynccontextmanager
@@ -47,6 +47,7 @@ app.include_router(patients.router)
 app.include_router(schedule.router)
 app.include_router(messages.router)
 app.include_router(import_.router)
+app.include_router(encounters.router)
 
 
 @app.get("/")

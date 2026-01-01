@@ -1,6 +1,8 @@
 # Mneme EMR
 
-A minimal EMR for medical education, integrated with oread synthetic patients and syrinx voice encounters.
+A minimal EMR for medical education, integrated with Oread synthetic patients and Syrinx voice encounters.
+
+Part of the **MedEd Platform** - see `metis/` for platform orchestration.
 
 ## Quick Start
 
@@ -30,7 +32,7 @@ cp .env.example .env
 python -m src.main
 ```
 
-The API will be available at http://localhost:8000
+The API will be available at http://localhost:8002
 
 ### 3. Frontend Setup
 

@@ -1,7 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Activity, Pill, AlertTriangle, FileText, FlaskConical, Syringe } from 'lucide-react';
-import { getPatientDetail, PatientDetail as PatientDetailType } from '../lib/api';
+import { ArrowLeft, Activity, Pill, AlertTriangle, FileText, FlaskConical, Syringe, Mic, MessageSquare } from 'lucide-react';
+import { getPatientDetail, PatientDetail as PatientDetailType, GeneratedEncounter } from '../lib/api';
+import GenerateEncounterModal from '../components/GenerateEncounterModal';
+import EncounterViewer from '../components/EncounterViewer';
+import RolePlaySetupModal from '../components/RolePlaySetupModal';
+import RolePlayModal from '../components/RolePlayModal';
+import { ParentPersona } from '../lib/roleplay';
 
 type Tab = 'summary' | 'notes' | 'results' | 'immunizations';
 
@@ -12,6 +17,10 @@ export default function PatientDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('summary');
+  const [showEncounterModal, setShowEncounterModal] = useState(false);
+  const [generatedEncounter, setGeneratedEncounter] = useState<GeneratedEncounter | null>(null);
+  const [showRolePlaySetup, setShowRolePlaySetup] = useState(false);
+  const [rolePlayConfig, setRolePlayConfig] = useState<{ chiefComplaint: string; parentPersona: ParentPersona } | null>(null);
 
   useEffect(() => {
     if (id) loadPatient(id);
@@ -85,22 +94,52 @@ export default function PatientDetail() {
           Back to Patients
         </button>
 
-        <div className="flex items-center">
-          <div
-            className="w-16 h-16 rounded-full flex items-center justify-center"
-            style={{ backgroundColor: 'var(--accent-light)' }}
-          >
-            <span className="text-xl font-medium" style={{ color: 'var(--accent)' }}>
-              {patient.given_names[0]?.[0]}{patient.family_name[0]}
-            </span>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center">
+            <div
+              className="w-16 h-16 rounded-full flex items-center justify-center"
+              style={{ backgroundColor: 'var(--accent-light)' }}
+            >
+              <span className="text-xl font-medium" style={{ color: 'var(--accent)' }}>
+                {patient.given_names[0]?.[0]}{patient.family_name[0]}
+              </span>
+            </div>
+            <div className="ml-4">
+              <h1 className="text-2xl font-display font-semibold" style={{ color: 'var(--text-primary)' }}>
+                {patient.given_names.join(' ')} {patient.family_name}
+              </h1>
+              <p style={{ color: 'var(--text-secondary)' }}>
+                {patient.age_years} years old &bull; {patient.sex_at_birth} &bull; DOB: {patient.date_of_birth}
+              </p>
+            </div>
           </div>
-          <div className="ml-4">
-            <h1 className="text-2xl font-display font-semibold" style={{ color: 'var(--text-primary)' }}>
-              {patient.given_names.join(' ')} {patient.family_name}
-            </h1>
-            <p style={{ color: 'var(--text-secondary)' }}>
-              {patient.age_years} years old &bull; {patient.sex_at_birth} &bull; DOB: {patient.date_of_birth}
-            </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowRolePlaySetup(true)}
+              className="flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+              style={{
+                backgroundColor: 'var(--accent)',
+                color: 'var(--text-inverse)',
+              }}
+              onMouseEnter={e => e.currentTarget.style.opacity = '0.9'}
+              onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+            >
+              <MessageSquare className="w-4 h-4 mr-2" />
+              Practice Encounter
+            </button>
+            <button
+              onClick={() => setShowEncounterModal(true)}
+              className="flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+              style={{
+                backgroundColor: 'var(--bg-secondary)',
+                color: 'var(--text-secondary)',
+              }}
+              onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--border)'}
+              onMouseLeave={e => e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'}
+            >
+              <Mic className="w-4 h-4 mr-2" />
+              Generate Script
+            </button>
           </div>
         </div>
 
@@ -404,6 +443,52 @@ export default function PatientDetail() {
           </div>
         )}
       </div>
+
+      {/* Generate Encounter Modal */}
+      {showEncounterModal && (
+        <GenerateEncounterModal
+          patientData={data}
+          onClose={() => setShowEncounterModal(false)}
+          onGenerated={(encounter) => {
+            setShowEncounterModal(false);
+            setGeneratedEncounter(encounter);
+          }}
+        />
+      )}
+
+      {/* Encounter Viewer */}
+      {generatedEncounter && (
+        <EncounterViewer
+          encounter={generatedEncounter}
+          onClose={() => setGeneratedEncounter(null)}
+          onRegenerate={() => {
+            setGeneratedEncounter(null);
+            setShowEncounterModal(true);
+          }}
+        />
+      )}
+
+      {/* Role-Play Setup Modal */}
+      {showRolePlaySetup && (
+        <RolePlaySetupModal
+          patientData={data}
+          onClose={() => setShowRolePlaySetup(false)}
+          onStart={(chiefComplaint, parentPersona) => {
+            setShowRolePlaySetup(false);
+            setRolePlayConfig({ chiefComplaint, parentPersona });
+          }}
+        />
+      )}
+
+      {/* Role-Play Chat Modal */}
+      {rolePlayConfig && (
+        <RolePlayModal
+          patientData={data}
+          chiefComplaint={rolePlayConfig.chiefComplaint}
+          parentPersona={rolePlayConfig.parentPersona}
+          onClose={() => setRolePlayConfig(null)}
+        />
+      )}
     </div>
   );
 }
