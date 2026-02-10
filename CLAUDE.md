@@ -104,8 +104,9 @@ synchart/
 ### Import
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/import/oread` | POST | Import single Oread JSON |
-| `/api/import/oread/batch` | POST | Import multiple files |
+| `/api/import/oread` | POST | Import single Oread JSON (file upload, auth required) |
+| `/api/import/oread/json` | POST | Import Oread JSON body (no file upload, auth optional) |
+| `/api/import/oread/batch` | POST | Import multiple files (auth required) |
 
 ### Health
 | Endpoint | Method | Description |
@@ -310,6 +311,20 @@ cd /Users/dochobbs/Downloads/Consult/MedEd/synchart/frontend
 npm run dev
 # UI at http://localhost:5173
 ```
+
+### Cross-Service Integration (February 2026)
+
+Key integration changes in Mneme:
+
+| Change | File | Detail |
+|--------|------|--------|
+| EchoClient URL fix | `backend/src/services/echo_client.py` | Default port changed from 8002 → 8001 |
+| `echo_url` config | `backend/src/config.py` | New setting: `echo_url: str = "http://localhost:8001"` |
+| JSON body import | `backend/src/routers/import_.py` | `POST /api/import/oread/json` — accepts JSON body, auth optional (uses `get_optional_user`, falls back to `"metis-system"`) |
+
+The JSON body import endpoint is used by the Metis Dashboard "Open in Mneme" button. Without Supabase configured, it will return 500 — this is expected in local-only mode.
+
+See **`docs/INTEGRATION.md`** for the full cross-service integration guide, architecture diagrams, and test procedures.
 
 ### Data Flow
 

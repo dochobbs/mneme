@@ -1,12 +1,13 @@
 """Import API routes for Mneme EMR."""
 
 import json
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
 from pydantic import BaseModel
 from src.db.supabase import SupabaseDB
 from src.importers.oread_json import OreadImporter
 from src.importers.fhir_bundle import FHIRBundleImporter
 from src.importers.ccda import CCDAImporter
+from src.middleware.auth import get_current_user, get_optional_user, CurrentUser
 
 router = APIRouter(prefix="/api/import", tags=["import"])
 
@@ -21,7 +22,10 @@ class ImportResult(BaseModel):
 
 
 @router.post("/oread")
-async def import_oread_json(file: UploadFile = File(...)) -> ImportResult:
+async def import_oread_json(
+  file: UploadFile = File(...),
+  current_user: CurrentUser = Depends(get_current_user),
+) -> ImportResult:
   """
   Import an oread JSON patient file.
 
@@ -34,7 +38,7 @@ async def import_oread_json(file: UploadFile = File(...)) -> ImportResult:
   db = SupabaseDB()
 
   # Create import record
-  import_record = db.create_import_record(file.filename, "oread-json")
+  import_record = db.create_import_record(file.filename, "oread-json", user_id=current_user.id)
   import_id = import_record.data[0]["id"]
 
   try:
@@ -44,7 +48,7 @@ async def import_oread_json(file: UploadFile = File(...)) -> ImportResult:
 
     # Import the patient
     importer = OreadImporter(db)
-    result = importer.import_patient(data, source_file=file.filename)
+    result = importer.import_patient(data, source_file=file.filename, user_id=current_user.id)
 
     if result["success"]:
       db.update_import_record(import_id, "completed", patient_count=1)
@@ -73,8 +77,57 @@ async def import_oread_json(file: UploadFile = File(...)) -> ImportResult:
     raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
 
 
+@router.post("/oread/json")
+async def import_oread_json_body(
+  data: dict,
+  current_user: CurrentUser | None = Depends(get_optional_user),
+) -> ImportResult:
+  """
+  Import an Oread patient from a JSON body (no file upload).
+
+  Accepts the same Oread JSON format as the file upload endpoint
+  but via a JSON request body. Used by Metis dashboard integration.
+  Auth is optional — unauthenticated requests use a system user ID.
+  """
+  user_id = current_user.id if current_user else "metis-system"
+  db = SupabaseDB()
+
+  import_record = db.create_import_record("api_json_import", "oread-json", user_id=user_id)
+  import_id = import_record.data[0]["id"]
+
+  try:
+    importer = OreadImporter(db)
+    result = importer.import_patient(data, source_file="api_json_import", user_id=user_id)
+
+    if result["success"]:
+      db.update_import_record(import_id, "completed", patient_count=1)
+      return ImportResult(
+        success=True,
+        import_id=import_id,
+        patient_count=1,
+        details={
+          "patient_id": result["patient_id"],
+          "counts": result["counts"],
+        },
+      )
+    else:
+      db.update_import_record(import_id, "failed", error="; ".join(result["errors"]))
+      return ImportResult(
+        success=False,
+        import_id=import_id,
+        errors=result["errors"],
+      )
+
+  except Exception as e:
+    db.update_import_record(import_id, "failed", error=str(e))
+    raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+
+
 @router.post("/oread/batch")
-async def import_oread_batch(files: list[UploadFile] = File(...)) -> ImportResult:
+async def import_oread_batch(
+  files: list[UploadFile] = File(...),
+  current_user: CurrentUser = Depends(get_current_user),
+) -> ImportResult:
   """
   Import multiple oread JSON patient files.
 
@@ -85,7 +138,8 @@ async def import_oread_batch(files: list[UploadFile] = File(...)) -> ImportResul
   # Create import record for batch
   import_record = db.create_import_record(
     f"batch_{len(files)}_files",
-    "oread-json-batch"
+    "oread-json-batch",
+    user_id=current_user.id,
   )
   import_id = import_record.data[0]["id"]
 
@@ -108,7 +162,7 @@ async def import_oread_batch(files: list[UploadFile] = File(...)) -> ImportResul
       content = await file.read()
       data = json.loads(content.decode("utf-8"))
 
-      result = importer.import_patient(data, source_file=file.filename)
+      result = importer.import_patient(data, source_file=file.filename, user_id=current_user.id)
 
       if result["success"]:
         results["successful"] += 1
@@ -150,7 +204,10 @@ async def import_oread_batch(files: list[UploadFile] = File(...)) -> ImportResul
 
 
 @router.post("/fhir")
-async def import_fhir_bundle(file: UploadFile = File(...)) -> ImportResult:
+async def import_fhir_bundle(
+  file: UploadFile = File(...),
+  current_user: CurrentUser = Depends(get_current_user),
+) -> ImportResult:
   """
   Import a FHIR R5 Bundle JSON file.
 
@@ -173,7 +230,7 @@ async def import_fhir_bundle(file: UploadFile = File(...)) -> ImportResult:
   db = SupabaseDB()
 
   # Create import record
-  import_record = db.create_import_record(file.filename, "fhir-r5")
+  import_record = db.create_import_record(file.filename, "fhir-r5", user_id=current_user.id)
   import_id = import_record.data[0]["id"]
 
   try:
@@ -183,7 +240,7 @@ async def import_fhir_bundle(file: UploadFile = File(...)) -> ImportResult:
 
     # Import the bundle
     importer = FHIRBundleImporter(db)
-    result = importer.import_bundle(data, source_file=file.filename)
+    result = importer.import_bundle(data, source_file=file.filename, user_id=current_user.id)
 
     if result.success:
       db.update_import_record(import_id, "completed", patient_count=1)
@@ -220,7 +277,10 @@ async def import_fhir_bundle(file: UploadFile = File(...)) -> ImportResult:
 
 
 @router.post("/ccda")
-async def import_ccda_document(file: UploadFile = File(...)) -> ImportResult:
+async def import_ccda_document(
+  file: UploadFile = File(...),
+  current_user: CurrentUser = Depends(get_current_user),
+) -> ImportResult:
   """
   Import a C-CDA 2.1 XML document.
 
@@ -243,7 +303,7 @@ async def import_ccda_document(file: UploadFile = File(...)) -> ImportResult:
   db = SupabaseDB()
 
   # Create import record
-  import_record = db.create_import_record(file.filename, "ccda")
+  import_record = db.create_import_record(file.filename, "ccda", user_id=current_user.id)
   import_id = import_record.data[0]["id"]
 
   try:
@@ -253,7 +313,7 @@ async def import_ccda_document(file: UploadFile = File(...)) -> ImportResult:
 
     # Import the C-CDA document
     importer = CCDAImporter(db)
-    result = importer.import_document(xml_content, source_file=file.filename)
+    result = importer.import_document(xml_content, source_file=file.filename, user_id=current_user.id)
 
     if result.success:
       db.update_import_record(import_id, "completed", patient_count=1)
@@ -287,13 +347,17 @@ async def import_ccda_document(file: UploadFile = File(...)) -> ImportResult:
 
 
 @router.get("/history")
-async def get_import_history(limit: int = 20):
-  """Get recent import operations."""
+async def get_import_history(
+  current_user: CurrentUser = Depends(get_current_user),
+  limit: int = 20,
+):
+  """Get recent import operations for current user."""
   db = SupabaseDB()
 
   result = (
     db.client.table("imports")
     .select("*")
+    .eq("user_id", current_user.id)
     .order("created_at", desc=True)
     .limit(limit)
     .execute()
@@ -303,7 +367,10 @@ async def get_import_history(limit: int = 20):
 
 
 @router.get("/{import_id}")
-async def get_import_status(import_id: str):
+async def get_import_status(
+  import_id: str,
+  current_user: CurrentUser = Depends(get_current_user),
+):
   """Get status of a specific import."""
   db = SupabaseDB()
 
@@ -311,6 +378,7 @@ async def get_import_status(import_id: str):
     db.client.table("imports")
     .select("*")
     .eq("id", import_id)
+    .eq("user_id", current_user.id)
     .single()
     .execute()
   )
