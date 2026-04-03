@@ -1,6 +1,6 @@
 # CLAUDE.md - Mneme Development Context
 
-**Last Updated:** December 2025
+**Last Updated:** April 2026
 
 This file provides context for AI assistants working on Mneme.
 
@@ -16,7 +16,7 @@ Named after the muse of memory (records), Mneme serves as the "chart" in the Med
 # Backend
 cd /Users/dochobbs/Downloads/Consult/MedEd/synchart/backend
 source .venv/bin/activate
-python -m src.main                  # API at http://localhost:8000
+python -m src.main                  # API at http://localhost:9102
 
 # Frontend (separate terminal)
 cd /Users/dochobbs/Downloads/Consult/MedEd/synchart/frontend
@@ -146,12 +146,12 @@ See `PLAN.md` for full SQL schema.
 ### Via API
 ```bash
 # Single file
-curl -X POST http://localhost:8000/api/import/oread \
+curl -X POST http://localhost:9102/api/import/oread \
   -H "Content-Type: application/json" \
   -d @patient.json
 
 # Check result
-curl http://localhost:8000/api/patients
+curl http://localhost:9102/api/patients
 ```
 
 ### Import Mapping
@@ -181,7 +181,7 @@ SUPABASE_ANON_KEY=eyJ...
 
 # Server
 HOST=0.0.0.0
-PORT=8002
+PORT=9102
 DEBUG=true
 
 # CORS
@@ -263,11 +263,12 @@ Mneme is part of the **MedEd Platform**, orchestrated by Metis.
 
 | Project | Greek Name | Port | Purpose |
 |---------|------------|------|---------|
-| synpat | Oread | 8004 | Patient generation |
-| synvoice | Syrinx | 8003 | Encounter scripts |
-| synchart | **Mneme** | 8002 | EMR interface |
-| echo | Echo | 8001 | AI tutor |
-| metis | Metis | 3000 | Portal (planned) |
+| synpat | Oread | 9104 | Patient generation |
+| synvoice | Syrinx | 9103 | Encounter scripts |
+| synchart | **Mneme** | 9102 | EMR interface |
+| echo | Echo | 9101 | AI tutor |
+| metis | Metis | 9100 | Portal (planned) |
+| athena | Athena | 9105 | Curriculum & knowledge |
 
 ### Shared Models
 
@@ -304,7 +305,7 @@ Mneme can run independently without Metis:
 cd /Users/dochobbs/Downloads/Consult/MedEd/synchart/backend
 source .venv/bin/activate
 python -m src.main
-# API at http://localhost:8002
+# API at http://localhost:9102
 
 # Frontend (separate terminal)
 cd /Users/dochobbs/Downloads/Consult/MedEd/synchart/frontend
@@ -319,7 +320,7 @@ Key integration changes in Mneme:
 | Change | File | Detail |
 |--------|------|--------|
 | EchoClient URL fix | `backend/src/services/echo_client.py` | Default port changed from 8002 → 8001 |
-| `echo_url` config | `backend/src/config.py` | New setting: `echo_url: str = "http://localhost:8001"` |
+| `echo_url` config | `backend/src/config.py` | New setting: `echo_url: str = "http://localhost:9101"` |
 | JSON body import | `backend/src/routers/import_.py` | `POST /api/import/oread/json` — accepts JSON body, auth optional (uses `get_optional_user`, falls back to `"metis-system"`) |
 
 The JSON body import endpoint is used by the Metis Dashboard "Open in Mneme" button. Without Supabase configured, it will return 500 — this is expected in local-only mode.
