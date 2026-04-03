@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 
-const SYRINX_WS_URL = 'ws://localhost:8003/api/session';
+const SYRINX_WS_URL = 'ws://localhost:9103/api/session';
 
 export interface ChatMessage {
   id: string;

@@ -106,10 +106,10 @@ class EchoClient:
         Initialize the Echo client.
 
         Args:
-            base_url: Echo service URL. Defaults to http://localhost:8001
+            base_url: Echo service URL. Defaults to http://localhost:9101
             timeout: Request timeout in seconds
         """
-        self.base_url = base_url or "http://localhost:8001"
+        self.base_url = base_url or "http://localhost:9101"
         self.timeout = timeout
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
@@ -370,6 +370,6 @@ def get_echo_client() -> EchoClient:
     global _echo_client
     if _echo_client is None:
         settings = get_settings()
-        echo_url = getattr(settings, "echo_url", "http://localhost:8001")
+        echo_url = getattr(settings, "echo_url", "http://localhost:9101")
         _echo_client = EchoClient(base_url=echo_url)
     return _echo_client

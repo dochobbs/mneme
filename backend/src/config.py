@@ -15,14 +15,14 @@ class Settings(BaseSettings):
 
   # Server
   host: str = "0.0.0.0"
-  port: int = 8002
+  port: int = 9102
   debug: bool = False
 
   # Echo
-  echo_url: str = "http://localhost:8001"
+  echo_url: str = "http://localhost:9101"
 
   # CORS
-  cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+  cors_origins: list[str] = ["http://localhost:5173", "http://localhost:9100"]
 
   class Config:
     env_file = ".env"

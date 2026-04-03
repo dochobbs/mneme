@@ -10,7 +10,7 @@ from src.db.supabase import SupabaseDB
 
 router = APIRouter(prefix="/api/encounters", tags=["encounters"])
 
-SYRINX_URL = "http://localhost:8003"
+SYRINX_URL = "http://localhost:9103"
 
 
 class GenerateEncounterRequest(BaseModel):
