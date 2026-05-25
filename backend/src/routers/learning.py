@@ -519,22 +519,56 @@ async def complete_session(
         request.final_disposition.lower() == correct_disposition.lower()
     )
 
-    # Update session
+    # Build the debrief result from Echo. We do this BEFORE the final DB update
+    # so the persisted row carries the debrief payload in one write.
+    debrief_result = await _build_debrief(
+        db=db,
+        session_data=session_data,
+        request=request,
+        correct_diagnosis=correct_diagnosis,
+        correct_disposition=correct_disposition,
+        was_correct=was_correct,
+    )
+
+    # Update session — persist final state + full debrief payload.
+    # Schema: debrief_json JSONB column added in migration 005.
+    # Stores the entire DebriefResult so it can be re-fetched without
+    # re-calling Echo (Echo calls are non-deterministic + slow).
     update_data = {
         "status": "completed",
         "current_phase": "debrief",
         "completed_at": datetime.utcnow().isoformat(),
         "final_diagnosis": request.final_diagnosis,
         "final_disposition": request.final_disposition,
+        "debrief_json": debrief_result.model_dump(),
     }
 
     db.client.table("learning_sessions").update(update_data).eq("id", session_id).execute()
 
-    # TODO: Call Echo /debrief endpoint for full analysis
-    # For now, return a basic debrief result
+    return debrief_result
 
-    return DebriefResult(
-        summary=f"Session completed. You diagnosed {request.final_diagnosis} with disposition {request.final_disposition}.",
+
+async def _build_debrief(
+    db: SupabaseDB,
+    session_data: dict,
+    request: CompleteSessionRequest,
+    correct_diagnosis: str,
+    correct_disposition: str,
+    was_correct: bool,
+) -> DebriefResult:
+    """Call Echo /debrief and merge with Mneme-known fields.
+
+    Falls back to a minimal stub DebriefResult if Echo is unreachable or
+    errors out, so session completion always succeeds and learners are not
+    blocked. The Echo connection error is printed; on fallback `summary`
+    notes that Echo was unavailable so the UI can surface that.
+    """
+    fallback_summary = (
+        f"Session completed. You diagnosed {request.final_diagnosis} with "
+        f"disposition {request.final_disposition}."
+    )
+    fallback = DebriefResult(
+        summary=fallback_summary,
         strengths=["Completed the encounter"],
         areas_for_improvement=[],
         missed_items=[],
@@ -543,6 +577,67 @@ async def complete_session(
         correct_disposition=correct_disposition or "Not specified",
         was_correct=was_correct,
     )
+
+    try:
+        # Fetch patient + clinical data to build PatientContext
+        patient_id = session_data["patient_id"]
+        patient_result = db.client.table("patients").select("*").eq("id", patient_id).single().execute()
+        patient_data = patient_result.data if patient_result.data else {}
+
+        conditions = db.client.table("conditions").select("*").eq("patient_id", patient_id).execute()
+        medications = db.client.table("medications").select("*").eq("patient_id", patient_id).execute()
+        allergies = db.client.table("allergies").select("*").eq("patient_id", patient_id).execute()
+
+        patient_context = build_patient_context(
+            patient_id=str(patient_id),
+            patient_data=patient_data,
+            conditions=conditions.data if conditions.data else [],
+            medications=medications.data if medications.data else [],
+            allergies=allergies.data if allergies.data else [],
+        )
+
+        # Build encounter context including the learner's final answer so
+        # Echo can score the diagnosis/disposition in context.
+        encounter_context = build_encounter_context(patient_context, session_data)
+        encounter_context.differential = (
+            encounter_context.differential or []
+        ) + [request.final_diagnosis]
+
+        echo_client = get_echo_client()
+        debrief_response = await echo_client.get_debrief(
+            DebriefRequest(
+                patient=patient_context,
+                encounter=encounter_context,
+                learner_level=session_data.get("learner_level", "student"),
+            )
+        )
+
+        if debrief_response is None:
+            # Echo returned an error or was unreachable. echo_client
+            # already logged the cause. Use fallback.
+            fallback.summary = fallback_summary + " (Debrief feedback unavailable.)"
+            return fallback
+
+        # Merge Echo response into DebriefResult shape (DebriefResult is a
+        # superset of DebriefResponse — it adds the Mneme-known fields
+        # correct_diagnosis / correct_disposition / was_correct).
+        return DebriefResult(
+            summary=debrief_response.summary,
+            strengths=debrief_response.strengths,
+            areas_for_improvement=debrief_response.areas_for_improvement,
+            missed_items=debrief_response.missed_items,
+            teaching_points=debrief_response.teaching_points,
+            follow_up_resources=debrief_response.follow_up_resources,
+            correct_diagnosis=correct_diagnosis or "Not specified",
+            correct_disposition=correct_disposition or "Not specified",
+            was_correct=was_correct,
+        )
+
+    except Exception as e:
+        # Never block session completion on Echo failures.
+        print(f"Debrief generation failed (using fallback): {e}")
+        fallback.summary = fallback_summary + " (Debrief feedback unavailable.)"
+        return fallback
 
 
 @router.get("/sessions/{session_id}/transcript")
