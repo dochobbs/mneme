@@ -10,16 +10,27 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import get_settings
-from src.routers import patients, schedule, messages, import_, encounters, learning
+from src.routers import patients, schedule, messages, import_, encounters, learning, auth
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
   """Application lifespan events."""
+  import sys
   # Startup
   settings = get_settings()
   print(f"Starting Mneme EMR on {settings.host}:{settings.port}")
   print(f"Debug mode: {settings.debug}")
+
+  # Supabase is required for all persistence (patient import, auth, learning sessions).
+  # Mneme without Supabase can boot but almost every endpoint will 500. Warn loudly.
+  if not (getattr(settings, "supabase_url", None) and getattr(settings, "supabase_anon_key", None)):
+    print(
+      "WARN: Supabase not configured (SUPABASE_URL + SUPABASE_ANON_KEY). "
+      "All persistent endpoints (patients, auth, learning, import) will fail.",
+      file=sys.stderr,
+    )
+
   yield
   # Shutdown
   print("Shutting down Mneme EMR")
@@ -43,6 +54,7 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(auth.router)
 app.include_router(patients.router)
 app.include_router(schedule.router)
 app.include_router(messages.router)
@@ -74,6 +86,7 @@ async def api_info():
   return {
     "version": "0.1.0",
     "endpoints": {
+      "auth": "/api/auth",
       "patients": "/api/patients",
       "schedule": "/api/schedule",
       "messages": "/api/messages",
