@@ -4,7 +4,7 @@
 
 Part of the **MedEd Platform** -- see [metis/](../metis/) for platform orchestration.
 
-**Port:** 8002 (backend API), 5173 (frontend dev server)
+**Port:** 9102 (backend API), 5173 (frontend dev server)
 
 ---
 
@@ -46,7 +46,7 @@ cp .env.example .env
 
 # Run
 python -m src.main
-# API at http://localhost:8002
+# API at http://localhost:9102
 ```
 
 ### 3. Frontend
@@ -128,10 +128,10 @@ See `supabase/migrations/001_initial_schema.sql` for the full schema.
 
 ```bash
 # Get patient from Oread
-curl -s http://localhost:8004/api/patients/{id}?format=json > /tmp/patient.json
+curl -s http://localhost:9104/api/patients/{id}?format=json > /tmp/patient.json
 
 # Import to Mneme (no auth required)
-curl -s -X POST http://localhost:8002/api/import/oread/json \
+curl -s -X POST http://localhost:9102/api/import/oread/json \
   -H 'Content-Type: application/json' \
   -d @/tmp/patient.json
 ```
@@ -139,7 +139,7 @@ curl -s -X POST http://localhost:8002/api/import/oread/json \
 ### Via API (file upload -- requires auth)
 
 ```bash
-curl -X POST http://localhost:8002/api/import/oread \
+curl -X POST http://localhost:9102/api/import/oread \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -F "file=@patient.json"
 ```
@@ -257,11 +257,11 @@ SUPABASE_ANON_KEY=eyJ...
 
 # Server
 HOST=0.0.0.0
-PORT=8002
+PORT=9102
 DEBUG=true
 
 # Echo integration
-ECHO_URL=http://localhost:8001
+ECHO_URL=http://localhost:9101
 
 # CORS
 CORS_ORIGINS=["http://localhost:5173","http://localhost:3000"]
