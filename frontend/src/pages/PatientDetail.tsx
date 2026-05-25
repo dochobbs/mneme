@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Activity, Pill, AlertTriangle, FileText, FlaskConical, Syringe, Mic, MessageSquare } from 'lucide-react';
-import { getPatientDetail, PatientDetail as PatientDetailType, GeneratedEncounter } from '../lib/api';
+import { ArrowLeft, Activity, Pill, AlertTriangle, FileText, FlaskConical, Syringe, Mic, MessageSquare, GraduationCap, X } from 'lucide-react';
+import { getPatientDetail, PatientDetail as PatientDetailType, GeneratedEncounter, startLearningSession } from '../lib/api';
+import type { EncounterType } from '../types/learning';
 import GenerateEncounterModal from '../components/GenerateEncounterModal';
 import EncounterViewer from '../components/EncounterViewer';
 import RolePlaySetupModal from '../components/RolePlaySetupModal';
@@ -22,6 +23,12 @@ export default function PatientDetail() {
   const [showRolePlaySetup, setShowRolePlaySetup] = useState(false);
   const [rolePlayConfig, setRolePlayConfig] = useState<{ chiefComplaint: string; parentPersona: ParentPersona } | null>(null);
 
+  // Learning session state
+  const [showLearningSetup, setShowLearningSetup] = useState(false);
+  const [learningChiefComplaint, setLearningChiefComplaint] = useState('');
+  const [learningEncounterType, setLearningEncounterType] = useState<EncounterType>('acute');
+  const [startingSession, setStartingSession] = useState(false);
+
   useEffect(() => {
     if (id) loadPatient(id);
   }, [id]);
@@ -36,6 +43,23 @@ export default function PatientDetail() {
       setError(err instanceof Error ? err.message : 'Failed to load patient');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleStartLearningSession() {
+    if (!id || !learningChiefComplaint.trim() || startingSession) return;
+
+    try {
+      setStartingSession(true);
+      const session = await startLearningSession({
+        patient_id: id,
+        encounter_type: learningEncounterType,
+        chief_complaint: learningChiefComplaint.trim(),
+      });
+      navigate(`/learning/${session.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start learning session');
+      setStartingSession(false);
     }
   }
 
@@ -114,6 +138,19 @@ export default function PatientDetail() {
             </div>
           </div>
           <div className="flex gap-2">
+            <button
+              onClick={() => setShowLearningSetup(true)}
+              className="flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+              style={{
+                backgroundColor: 'var(--clinical-success)',
+                color: 'white',
+              }}
+              onMouseEnter={e => e.currentTarget.style.opacity = '0.9'}
+              onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+            >
+              <GraduationCap className="w-4 h-4 mr-2" />
+              Learning Visit
+            </button>
             <button
               onClick={() => setShowRolePlaySetup(true)}
               className="flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-colors"
@@ -488,6 +525,83 @@ export default function PatientDetail() {
           parentPersona={rolePlayConfig.parentPersona}
           onClose={() => setRolePlayConfig(null)}
         />
+      )}
+
+      {/* Learning Session Setup Modal */}
+      {showLearningSetup && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 shadow-xl">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-2">
+                <GraduationCap className="w-6 h-6" style={{ color: 'var(--clinical-success)' }} />
+                <h2 className="font-display text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  Start Learning Visit
+                </h2>
+              </div>
+              <button
+                onClick={() => setShowLearningSetup(false)}
+                className="p-1 rounded hover:bg-gray-100"
+              >
+                <X className="w-5 h-5" style={{ color: 'var(--text-secondary)' }} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                  Chief Complaint
+                </label>
+                <input
+                  type="text"
+                  value={learningChiefComplaint}
+                  onChange={(e) => setLearningChiefComplaint(e.target.value)}
+                  placeholder="e.g., Fever for 3 days"
+                  className="w-full px-3 py-2 rounded-lg border"
+                  style={{ borderColor: 'var(--border)' }}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                  Encounter Type
+                </label>
+                <select
+                  value={learningEncounterType}
+                  onChange={(e) => setLearningEncounterType(e.target.value as EncounterType)}
+                  className="w-full px-3 py-2 rounded-lg border"
+                  style={{ borderColor: 'var(--border)' }}
+                >
+                  <option value="acute">Acute Visit</option>
+                  <option value="well-child">Well-Child Check</option>
+                  <option value="mental-health">Mental Health</option>
+                  <option value="follow-up">Follow-Up</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => setShowLearningSetup(false)}
+                className="px-4 py-2 rounded-lg text-sm font-medium"
+                style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleStartLearningSession}
+                disabled={!learningChiefComplaint.trim() || startingSession}
+                className="px-4 py-2 rounded-lg text-sm font-medium"
+                style={{
+                  backgroundColor: 'var(--clinical-success)',
+                  color: 'white',
+                  opacity: !learningChiefComplaint.trim() || startingSession ? 0.5 : 1,
+                }}
+              >
+                {startingSession ? 'Starting...' : 'Start Learning'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

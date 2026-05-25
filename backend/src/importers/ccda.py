@@ -63,13 +63,14 @@ class CCDAImporter(BaseImporter):
   def format_name(self) -> str:
     return "ccda"
 
-  def import_ccda(self, xml_content: str | bytes, source_file: str = "unknown") -> ImportResult:
+  def import_document(self, xml_content: str | bytes, source_file: str = "unknown", user_id: str | None = None) -> ImportResult:
     """
     Import a C-CDA XML document.
 
     Args:
       xml_content: C-CDA XML as string or bytes
       source_file: Name of source file for tracking
+      user_id: User ID to associate patient with
 
     Returns:
       ImportResult with success status, patient_id, counts, warnings/errors
@@ -88,7 +89,10 @@ class CCDAImporter(BaseImporter):
       )
 
     # Use base class import_patient
-    return self.import_patient(self._root, source_file)
+    return self.import_patient(self._root, source_file, user_id=user_id)
+
+  # Alias for backwards compatibility
+  import_ccda = import_document
 
   def extract_patient(self, root: etree._Element) -> ExtractedPatient:
     """Extract all data from C-CDA document."""

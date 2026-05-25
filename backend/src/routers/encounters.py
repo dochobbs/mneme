@@ -6,6 +6,7 @@ from pydantic import BaseModel
 import httpx
 
 from src.db.supabase import SupabaseDB
+from src.db.helpers import first_or_500
 
 
 router = APIRouter(prefix="/api/encounters", tags=["encounters"])
@@ -198,7 +199,7 @@ async def save_encounter(request: SaveEncounterRequest):
       "script": request.script,
     }).execute()
 
-    return {"id": result.data[0]["id"], "status": "saved"}
+    return {"id": first_or_500(result, "encounter")["id"], "status": "saved"}
   except Exception as e:
     raise HTTPException(
       status_code=500,

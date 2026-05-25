@@ -2,16 +2,32 @@
  * API client for Mneme EMR backend.
  */
 
+import { getAccessToken } from '../context/AuthContext';
+
 const API_BASE = '/api';
 
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  // Get auth token if available
+  const token = getAccessToken();
+
   const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...(token && { 'Authorization': `Bearer ${token}` }),
       ...options?.headers,
     },
   });
+
+  // Handle 401 Unauthorized - redirect to login
+  if (response.status === 401) {
+    // Clear stored tokens and redirect
+    localStorage.removeItem('mneme_access_token');
+    localStorage.removeItem('mneme_refresh_token');
+    localStorage.removeItem('mneme_user');
+    window.location.href = '/login';
+    throw new Error('Session expired');
+  }
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'An error occurred' }));
@@ -319,4 +335,91 @@ export async function saveEncounter(encounter: {
 
 export async function getGeneratedEncounters(patientId: string): Promise<SavedEncounter[]> {
   return fetchAPI<SavedEncounter[]>(`/encounters/${patientId}/generated`);
+}
+
+// Learning Sessions
+
+import type {
+  LearningSession,
+  SessionSummary,
+  StartSessionRequest,
+  LearnerAction,
+  ActionResponse,
+  AdvancePhaseRequest,
+  CompleteSessionRequest,
+  UpdateSessionRequest,
+  DebriefResult,
+  SessionTranscript,
+} from '../types/learning';
+
+export async function startLearningSession(request: StartSessionRequest): Promise<LearningSession> {
+  return fetchAPI<LearningSession>('/learning/sessions', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+export async function getLearningSession(sessionId: string): Promise<LearningSession> {
+  return fetchAPI<LearningSession>(`/learning/sessions/${sessionId}`);
+}
+
+export async function listLearningSessions(
+  status?: string,
+  patientId?: string,
+  limit?: number
+): Promise<SessionSummary[]> {
+  const params = new URLSearchParams();
+  if (status) params.set('status', status);
+  if (patientId) params.set('patient_id', patientId);
+  if (limit) params.set('limit', limit.toString());
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return fetchAPI<SessionSummary[]>(`/learning/sessions${query}`);
+}
+
+export async function getActiveLearningSessions(): Promise<SessionSummary[]> {
+  return fetchAPI<SessionSummary[]>('/learning/sessions/active');
+}
+
+export async function updateLearningSession(
+  sessionId: string,
+  request: UpdateSessionRequest
+): Promise<LearningSession> {
+  return fetchAPI<LearningSession>(`/learning/sessions/${sessionId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(request),
+  });
+}
+
+export async function submitLearnerAction(
+  sessionId: string,
+  action: LearnerAction
+): Promise<ActionResponse> {
+  return fetchAPI<ActionResponse>(`/learning/sessions/${sessionId}/action`, {
+    method: 'POST',
+    body: JSON.stringify(action),
+  });
+}
+
+export async function advanceLearningPhase(
+  sessionId: string,
+  request?: AdvancePhaseRequest
+): Promise<LearningSession> {
+  return fetchAPI<LearningSession>(`/learning/sessions/${sessionId}/advance`, {
+    method: 'POST',
+    body: JSON.stringify(request || {}),
+  });
+}
+
+export async function completeLearningSession(
+  sessionId: string,
+  request: CompleteSessionRequest
+): Promise<DebriefResult> {
+  return fetchAPI<DebriefResult>(`/learning/sessions/${sessionId}/complete`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+export async function getSessionTranscript(sessionId: string): Promise<SessionTranscript> {
+  return fetchAPI<SessionTranscript>(`/learning/sessions/${sessionId}/transcript`);
 }

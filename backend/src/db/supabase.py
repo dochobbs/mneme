@@ -27,25 +27,24 @@ class SupabaseDB:
     self.client = client or get_supabase()
 
   # Patients
-  def get_patients(self, limit: int = 50, offset: int = 0):
-    """Get paginated list of patients."""
+  def get_patients(self, limit: int = 50, offset: int = 0, user_id: str | None = None):
+    """Get paginated list of patients, optionally filtered by user."""
+    query = self.client.table("patients").select("*")
+    if user_id:
+      query = query.eq("user_id", user_id)
     return (
-      self.client.table("patients")
-      .select("*")
+      query
       .order("family_name")
       .range(offset, offset + limit - 1)
       .execute()
     )
 
-  def get_patient(self, patient_id: str):
+  def get_patient(self, patient_id: str, user_id: str | None = None):
     """Get patient by ID with full clinical data."""
-    return (
-      self.client.table("patients")
-      .select("*")
-      .eq("id", patient_id)
-      .single()
-      .execute()
-    )
+    query = self.client.table("patients").select("*").eq("id", patient_id)
+    if user_id:
+      query = query.eq("user_id", user_id)
+    return query.single().execute()
 
   def get_patient_conditions(self, patient_id: str):
     """Get patient's conditions/problems."""
@@ -168,8 +167,10 @@ class SupabaseDB:
     )
 
   # Import operations
-  def insert_patient(self, data: dict):
+  def insert_patient(self, data: dict, user_id: str | None = None):
     """Insert a new patient."""
+    if user_id:
+      data = {**data, "user_id": user_id}
     return self.client.table("patients").insert(data).execute()
 
   def delete_patient(self, patient_id: str):
@@ -237,13 +238,12 @@ class SupabaseDB:
       return None
     return self.client.table("growth_data").insert(data).execute()
 
-  def create_import_record(self, filename: str, format: str):
+  def create_import_record(self, filename: str, format: str, user_id: str | None = None):
     """Create an import tracking record."""
-    return (
-      self.client.table("imports")
-      .insert({"filename": filename, "format": format, "status": "processing"})
-      .execute()
-    )
+    data = {"filename": filename, "format": format, "status": "processing"}
+    if user_id:
+      data["user_id"] = user_id
+    return self.client.table("imports").insert(data).execute()
 
   def update_import_record(self, import_id: str, status: str, patient_count: int = 0, error: str | None = None):
     """Update import record status."""

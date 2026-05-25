@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.db.supabase import SupabaseDB
+from src.db.helpers import first_or_500
 from src.importers.validation.validators import ImportValidator, ValidationWarning
 
 
@@ -94,7 +95,7 @@ class BaseImporter(ABC):
     """
     pass
 
-  def import_patient(self, data: Any, source_file: str = "unknown") -> ImportResult:
+  def import_patient(self, data: Any, source_file: str = "unknown", user_id: str | None = None) -> ImportResult:
     """
     Import patient with validation and rollback support.
 
@@ -107,6 +108,7 @@ class BaseImporter(ABC):
     Args:
       data: Source data in native format
       source_file: Name of source file for tracking
+      user_id: User ID to associate patient with
 
     Returns:
       ImportResult with success status, patient_id, counts, and any warnings/errors
@@ -127,8 +129,8 @@ class BaseImporter(ABC):
       result.warnings = warnings
 
       # Step 3: Insert patient first, capture ID
-      patient_response = self.db.insert_patient(extracted.patient)
-      patient_id = patient_response.data[0]["id"]
+      patient_response = self.db.insert_patient(extracted.patient, user_id=user_id)
+      patient_id = first_or_500(patient_response, "patient")["id"]
       result.patient_id = patient_id
 
       # Step 4: Insert all child records

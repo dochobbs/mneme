@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from src.db.supabase import SupabaseDB
+from src.db.helpers import first_or_500
 
 
 class OreadImporter:
@@ -36,13 +37,14 @@ class OreadImporter:
 
     return self.import_patient(data, source_file=filepath.name)
 
-  def import_patient(self, data: dict, source_file: str = "unknown") -> dict:
+  def import_patient(self, data: dict, source_file: str = "unknown", user_id: str | None = None) -> dict:
     """
     Import a single patient from oread JSON data.
 
     Args:
         data: Oread patient JSON as dict
         source_file: Name of source file for tracking
+        user_id: User ID to associate patient with
 
     Returns:
         Dict with patient_id, counts, and any errors
@@ -58,8 +60,8 @@ class OreadImporter:
     try:
       # Extract and insert patient demographics
       patient_data = self._extract_patient(data)
-      patient_response = self.db.insert_patient(patient_data)
-      patient_id = patient_response.data[0]["id"]
+      patient_response = self.db.insert_patient(patient_data, user_id=user_id)
+      patient_id = first_or_500(patient_response, "patient")["id"]
       result["patient_id"] = patient_id
 
       # Import related clinical data

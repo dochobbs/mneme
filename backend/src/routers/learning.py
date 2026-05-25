@@ -2,8 +2,19 @@
 
 import uuid
 from datetime import datetime
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from src.db.supabase import SupabaseDB
+from src.db.helpers import first_or_500
+from src.middleware.auth import get_current_user, CurrentUser
+from src.engines.drip import DripEngine
+from src.services.echo_client import (
+    get_echo_client,
+    build_patient_context,
+    build_encounter_context,
+    FeedbackRequest,
+    QuestionRequest,
+    DebriefRequest,
+)
 from src.models.learning import (
     StartSessionRequest,
     LearnerAction,
@@ -94,7 +105,10 @@ def parse_session(data: dict) -> LearningSession:
 # --- Session CRUD ---
 
 @router.post("/sessions", response_model=LearningSession)
-async def start_session(request: StartSessionRequest):
+async def start_session(
+    request: StartSessionRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """
     Start a new learning session.
 
@@ -103,8 +117,8 @@ async def start_session(request: StartSessionRequest):
     """
     db = SupabaseDB()
 
-    # Verify patient exists
-    patient = db.client.table("patients").select("*").eq("id", request.patient_id).single().execute()
+    # Verify patient exists and belongs to user
+    patient = db.client.table("patients").select("*").eq("id", request.patient_id).eq("user_id", current_user.id).single().execute()
     if not patient.data:
         raise HTTPException(status_code=404, detail="Patient not found")
 
@@ -125,6 +139,7 @@ async def start_session(request: StartSessionRequest):
 
     # Create session record
     session_data = {
+        "user_id": current_user.id,
         "patient_id": request.patient_id,
         "appointment_id": request.appointment_id,
         "case_id": request.case_id,
@@ -155,11 +170,12 @@ async def start_session(request: StartSessionRequest):
     if not result.data:
         raise HTTPException(status_code=500, detail="Failed to create session")
 
-    return parse_session(result.data[0])
+    return parse_session(first_or_500(result, "learning session"))
 
 
 @router.get("/sessions", response_model=list[SessionSummary])
 async def list_sessions(
+    current_user: CurrentUser = Depends(get_current_user),
     status: str | None = None,
     patient_id: str | None = None,
     limit: int = 20,
@@ -169,7 +185,7 @@ async def list_sessions(
 
     query = db.client.table("learning_sessions").select(
         "id, patient_id, status, current_phase, encounter_type, chief_complaint, started_at, completed_at"
-    )
+    ).eq("user_id", current_user.id)
 
     if status:
         query = query.eq("status", status)
@@ -196,17 +212,22 @@ async def list_sessions(
 
 
 @router.get("/sessions/active", response_model=list[SessionSummary])
-async def get_active_sessions():
+async def get_active_sessions(
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """Get all active learning sessions."""
-    return await list_sessions(status="active")
+    return await list_sessions(current_user=current_user, status="active")
 
 
 @router.get("/sessions/{session_id}", response_model=LearningSession)
-async def get_session(session_id: str):
+async def get_session(
+    session_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """Get full state of a learning session."""
     db = SupabaseDB()
 
-    result = db.client.table("learning_sessions").select("*").eq("id", session_id).single().execute()
+    result = db.client.table("learning_sessions").select("*").eq("id", session_id).eq("user_id", current_user.id).single().execute()
 
     if not result.data:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -215,12 +236,16 @@ async def get_session(session_id: str):
 
 
 @router.patch("/sessions/{session_id}", response_model=LearningSession)
-async def update_session(session_id: str, request: UpdateSessionRequest):
+async def update_session(
+    session_id: str,
+    request: UpdateSessionRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """Update session status (pause/resume/abandon)."""
     db = SupabaseDB()
 
-    # Get current session
-    current = db.client.table("learning_sessions").select("*").eq("id", session_id).single().execute()
+    # Get current session (verify ownership)
+    current = db.client.table("learning_sessions").select("*").eq("id", session_id).eq("user_id", current_user.id).single().execute()
     if not current.data:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -238,13 +263,17 @@ async def update_session(session_id: str, request: UpdateSessionRequest):
 
     result = db.client.table("learning_sessions").update(update_data).eq("id", session_id).execute()
 
-    return parse_session(result.data[0])
+    return parse_session(first_or_500(result, "learning session"))
 
 
 # --- Actions ---
 
 @router.post("/sessions/{session_id}/action", response_model=ActionResponse)
-async def submit_action(session_id: str, action: LearnerAction):
+async def submit_action(
+    session_id: str,
+    action: LearnerAction,
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """
     Submit a learner action during a session.
 
@@ -253,8 +282,8 @@ async def submit_action(session_id: str, action: LearnerAction):
     """
     db = SupabaseDB()
 
-    # Get current session
-    session_result = db.client.table("learning_sessions").select("*").eq("id", session_id).single().execute()
+    # Get current session (verify ownership)
+    session_result = db.client.table("learning_sessions").select("*").eq("id", session_id).eq("user_id", current_user.id).single().execute()
     if not session_result.data:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -314,38 +343,111 @@ async def submit_action(session_id: str, action: LearnerAction):
             "status": "pending",
         })
 
-    # Update session
+    # Get patient data for context
+    patient_result = db.client.table("patients").select("*").eq("id", session_data["patient_id"]).single().execute()
+    patient_data = patient_result.data if patient_result.data else {}
+
+    # Build patient context for Echo
+    conditions = db.client.table("conditions").select("*").eq("patient_id", session_data["patient_id"]).execute()
+    medications = db.client.table("medications").select("*").eq("patient_id", session_data["patient_id"]).execute()
+    allergies = db.client.table("allergies").select("*").eq("patient_id", session_data["patient_id"]).execute()
+
+    patient_context = build_patient_context(
+        patient_id=str(session_data["patient_id"]),
+        patient_data=patient_data,
+        conditions=conditions.data if conditions.data else [],
+        medications=medications.data if medications.data else [],
+        allergies=allergies.data if allergies.data else [],
+    )
+
+    # Process action through DripEngine
+    drip_engine = DripEngine(echo_client=get_echo_client())
+    drip_result = await drip_engine.process_action(
+        action=action,
+        session_data=session_data,
+        patient_context=patient_context,
+    )
+
+    # Merge revealed data into session
+    revealed_data = session_data.get("revealed_data", {})
+    for category, new_data in drip_result.revealed.items():
+        if category in revealed_data:
+            if isinstance(revealed_data[category], list) and isinstance(new_data, list):
+                revealed_data[category].extend(new_data)
+            elif isinstance(revealed_data[category], list):
+                revealed_data[category].append(new_data)
+            else:
+                revealed_data[category] = new_data
+        else:
+            revealed_data[category] = new_data
+
+    # Check for teaching moments
+    teaching_moment = drip_engine.check_teaching_moment(session_data, action)
+    teaching_moments = session_data.get("teaching_moments", [])
+    if teaching_moment:
+        teaching_moments.append(teaching_moment.model_dump())
+
+    # Handle Echo sidebar questions
+    echo_feedback = None
+    if action.action_type == "ask_echo":
+        echo_client = get_echo_client()
+        encounter_context = build_encounter_context(patient_context, session_data)
+        question_response = await echo_client.ask_question(
+            QuestionRequest(
+                patient=patient_context,
+                encounter=encounter_context,
+                learner_question=action.content,
+                learner_level=session_data.get("learner_level", "student"),
+            )
+        )
+        if question_response:
+            echo_msg = EchoMessage(
+                id=str(uuid.uuid4()),
+                role="echo",
+                content=question_response.question,
+                timestamp=datetime.utcnow(),
+                triggered_by=action_id,
+                is_proactive=False,
+            )
+            echo_messages = session_data.get("echo_messages", [])
+            echo_messages.append(echo_msg.model_dump())
+            echo_feedback = echo_msg
+
+    # Update session with all changes
     update_data = {
         "actions": actions,
         "differential": differential,
         "orders_placed": orders,
         "questions_asked": questions_asked,
         "exams_performed": exams_performed,
+        "revealed_data": revealed_data,
+        "teaching_moments": teaching_moments,
     }
+    if action.action_type == "ask_echo" and echo_feedback:
+        update_data["echo_messages"] = session_data.get("echo_messages", [])
 
     db.client.table("learning_sessions").update(update_data).eq("id", session_id).execute()
-
-    # TODO: Integrate with DripEngine to reveal data based on action
-    # TODO: Integrate with Echo to get feedback
-    # TODO: Check for teaching moments
-    # TODO: Check for branch triggers
 
     return ActionResponse(
         success=True,
         action_id=action_id,
-        revealed_data=None,  # Will be populated by DripEngine
-        echo_feedback=None,  # Will be populated by Echo integration
+        revealed_data=drip_result.revealed if drip_result.revealed else None,
+        echo_feedback=echo_feedback,
         phase_changed=False,
-        teaching_moment=None,
+        teaching_moment=teaching_moment,
     )
 
 
 @router.post("/sessions/{session_id}/advance", response_model=LearningSession)
-async def advance_phase(session_id: str, request: AdvancePhaseRequest):
+async def advance_phase(
+    session_id: str,
+    request: AdvancePhaseRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """Advance the session to the next phase."""
     db = SupabaseDB()
 
-    session_result = db.client.table("learning_sessions").select("*").eq("id", session_id).single().execute()
+    session_result = db.client.table("learning_sessions").select("*").eq("id", session_id).eq("user_id", current_user.id).single().execute()
     if not session_result.data:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -383,11 +485,15 @@ async def advance_phase(session_id: str, request: AdvancePhaseRequest):
 
     result = db.client.table("learning_sessions").update(update_data).eq("id", session_id).execute()
 
-    return parse_session(result.data[0])
+    return parse_session(first_or_500(result, "learning session"))
 
 
 @router.post("/sessions/{session_id}/complete", response_model=DebriefResult)
-async def complete_session(session_id: str, request: CompleteSessionRequest):
+async def complete_session(
+    session_id: str,
+    request: CompleteSessionRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """
     Complete the session and trigger debrief.
 
@@ -395,7 +501,7 @@ async def complete_session(session_id: str, request: CompleteSessionRequest):
     """
     db = SupabaseDB()
 
-    session_result = db.client.table("learning_sessions").select("*").eq("id", session_id).single().execute()
+    session_result = db.client.table("learning_sessions").select("*").eq("id", session_id).eq("user_id", current_user.id).single().execute()
     if not session_result.data:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -440,11 +546,14 @@ async def complete_session(session_id: str, request: CompleteSessionRequest):
 
 
 @router.get("/sessions/{session_id}/transcript")
-async def get_session_transcript(session_id: str):
+async def get_session_transcript(
+    session_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """Get the full transcript of a session including all actions and Echo messages."""
     db = SupabaseDB()
 
-    session_result = db.client.table("learning_sessions").select("*").eq("id", session_id).single().execute()
+    session_result = db.client.table("learning_sessions").select("*").eq("id", session_id).eq("user_id", current_user.id).single().execute()
     if not session_result.data:
         raise HTTPException(status_code=404, detail="Session not found")
 

@@ -4,6 +4,7 @@ import json
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
 from pydantic import BaseModel
 from src.db.supabase import SupabaseDB
+from src.db.helpers import first_or_500
 from src.importers.oread_json import OreadImporter
 from src.importers.fhir_bundle import FHIRBundleImporter
 from src.importers.ccda import CCDAImporter
@@ -39,7 +40,7 @@ async def import_oread_json(
 
   # Create import record
   import_record = db.create_import_record(file.filename, "oread-json", user_id=current_user.id)
-  import_id = import_record.data[0]["id"]
+  import_id = first_or_500(import_record, "import record")["id"]
 
   try:
     # Read and parse the file
@@ -93,7 +94,7 @@ async def import_oread_json_body(
   db = SupabaseDB()
 
   import_record = db.create_import_record("api_json_import", "oread-json", user_id=user_id)
-  import_id = import_record.data[0]["id"]
+  import_id = first_or_500(import_record, "import record")["id"]
 
   try:
     importer = OreadImporter(db)
@@ -141,7 +142,7 @@ async def import_oread_batch(
     "oread-json-batch",
     user_id=current_user.id,
   )
-  import_id = import_record.data[0]["id"]
+  import_id = first_or_500(import_record, "import record")["id"]
 
   results = {
     "successful": 0,
@@ -231,7 +232,7 @@ async def import_fhir_bundle(
 
   # Create import record
   import_record = db.create_import_record(file.filename, "fhir-r5", user_id=current_user.id)
-  import_id = import_record.data[0]["id"]
+  import_id = first_or_500(import_record, "import record")["id"]
 
   try:
     # Read and parse the file
@@ -304,7 +305,7 @@ async def import_ccda_document(
 
   # Create import record
   import_record = db.create_import_record(file.filename, "ccda", user_id=current_user.id)
-  import_id = import_record.data[0]["id"]
+  import_id = first_or_500(import_record, "import record")["id"]
 
   try:
     # Read the file content

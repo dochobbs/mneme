@@ -45,7 +45,7 @@ class FHIRBundleImporter(BaseImporter):
   def format_name(self) -> str:
     return "fhir-r5"
 
-  def import_bundle(self, bundle_json: dict, source_file: str = "unknown") -> ImportResult:
+  def import_bundle(self, bundle_json: dict, source_file: str = "unknown", user_id: str | None = None) -> ImportResult:
     """
     Import a FHIR R5 Bundle.
 
@@ -55,6 +55,7 @@ class FHIRBundleImporter(BaseImporter):
     Args:
       bundle_json: FHIR Bundle as dictionary
       source_file: Name of source file for tracking
+      user_id: User ID to associate patient with
 
     Returns:
       ImportResult with success status, patient_id, counts, warnings/errors
@@ -86,7 +87,7 @@ class FHIRBundleImporter(BaseImporter):
     self._patient_id = patient_resource.id
 
     # Use base class import_patient with bundle data
-    return self.import_patient(bundle, source_file)
+    return self.import_patient(bundle, source_file, user_id=user_id)
 
   def extract_patient(self, bundle: Bundle) -> ExtractedPatient:
     """Extract all resources from FHIR Bundle."""

@@ -1,23 +1,25 @@
 """Patient API routes for Mneme EMR."""
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from src.db.supabase import SupabaseDB
 from src.models.patient import Patient, PatientSummary, PatientDetail, Condition, Medication, Allergy, Immunization, Observation, GrowthData
 from src.models.encounter import Encounter
+from src.middleware.auth import get_current_user, CurrentUser
 
 router = APIRouter(prefix="/api/patients", tags=["patients"])
 
 
 @router.get("")
 async def list_patients(
+  current_user: CurrentUser = Depends(get_current_user),
   limit: int = Query(50, ge=1, le=100),
   offset: int = Query(0, ge=0),
   search: str | None = None,
 ) -> list[PatientSummary]:
-  """Get paginated list of patients."""
+  """Get paginated list of patients for current user."""
   try:
     db = SupabaseDB()
-    result = db.get_patients(limit=limit, offset=offset)
+    result = db.get_patients(limit=limit, offset=offset, user_id=current_user.id)
     return [PatientSummary(**p) for p in result.data]
   except Exception as e:
     # Table may not exist yet - return empty list
@@ -26,23 +28,29 @@ async def list_patients(
 
 
 @router.get("/{patient_id}")
-async def get_patient(patient_id: str) -> Patient:
+async def get_patient(
+  patient_id: str,
+  current_user: CurrentUser = Depends(get_current_user),
+) -> Patient:
   """Get patient by ID."""
   db = SupabaseDB()
   try:
-    result = db.get_patient(patient_id)
+    result = db.get_patient(patient_id, user_id=current_user.id)
     return Patient(**result.data)
   except Exception:
     raise HTTPException(status_code=404, detail="Patient not found")
 
 
 @router.get("/{patient_id}/detail")
-async def get_patient_detail(patient_id: str) -> PatientDetail:
+async def get_patient_detail(
+  patient_id: str,
+  current_user: CurrentUser = Depends(get_current_user),
+) -> PatientDetail:
   """Get patient with full clinical data."""
   db = SupabaseDB()
 
   try:
-    patient_result = db.get_patient(patient_id)
+    patient_result = db.get_patient(patient_id, user_id=current_user.id)
     patient = Patient(**patient_result.data)
   except Exception:
     raise HTTPException(status_code=404, detail="Patient not found")
@@ -69,33 +77,50 @@ async def get_patient_detail(patient_id: str) -> PatientDetail:
 
 
 @router.get("/{patient_id}/conditions")
-async def get_patient_conditions(patient_id: str) -> list[Condition]:
+async def get_patient_conditions(
+  patient_id: str,
+  current_user: CurrentUser = Depends(get_current_user),
+) -> list[Condition]:
   """Get patient's conditions/problems."""
   db = SupabaseDB()
+  # Verify patient belongs to user
+  db.get_patient(patient_id, user_id=current_user.id)
   result = db.get_patient_conditions(patient_id)
   return [Condition(**c) for c in result.data]
 
 
 @router.get("/{patient_id}/medications")
-async def get_patient_medications(patient_id: str) -> list[Medication]:
+async def get_patient_medications(
+  patient_id: str,
+  current_user: CurrentUser = Depends(get_current_user),
+) -> list[Medication]:
   """Get patient's medications."""
   db = SupabaseDB()
+  db.get_patient(patient_id, user_id=current_user.id)
   result = db.get_patient_medications(patient_id)
   return [Medication(**m) for m in result.data]
 
 
 @router.get("/{patient_id}/allergies")
-async def get_patient_allergies(patient_id: str) -> list[Allergy]:
+async def get_patient_allergies(
+  patient_id: str,
+  current_user: CurrentUser = Depends(get_current_user),
+) -> list[Allergy]:
   """Get patient's allergies."""
   db = SupabaseDB()
+  db.get_patient(patient_id, user_id=current_user.id)
   result = db.get_patient_allergies(patient_id)
   return [Allergy(**a) for a in result.data]
 
 
 @router.get("/{patient_id}/immunizations")
-async def get_patient_immunizations(patient_id: str) -> list[Immunization]:
+async def get_patient_immunizations(
+  patient_id: str,
+  current_user: CurrentUser = Depends(get_current_user),
+) -> list[Immunization]:
   """Get patient's immunizations."""
   db = SupabaseDB()
+  db.get_patient(patient_id, user_id=current_user.id)
   result = db.get_patient_immunizations(patient_id)
   return [Immunization(**i) for i in result.data]
 
@@ -103,10 +128,12 @@ async def get_patient_immunizations(patient_id: str) -> list[Immunization]:
 @router.get("/{patient_id}/encounters")
 async def get_patient_encounters(
   patient_id: str,
+  current_user: CurrentUser = Depends(get_current_user),
   limit: int = Query(20, ge=1, le=100),
 ) -> list[Encounter]:
   """Get patient's encounters/notes."""
   db = SupabaseDB()
+  db.get_patient(patient_id, user_id=current_user.id)
   result = db.get_patient_encounters(patient_id, limit=limit)
   return [Encounter(**e) for e in result.data]
 
@@ -114,25 +141,35 @@ async def get_patient_encounters(
 @router.get("/{patient_id}/observations")
 async def get_patient_observations(
   patient_id: str,
+  current_user: CurrentUser = Depends(get_current_user),
   category: str | None = None,
 ) -> list[Observation]:
   """Get patient's observations (labs, vitals)."""
   db = SupabaseDB()
+  db.get_patient(patient_id, user_id=current_user.id)
   result = db.get_patient_observations(patient_id, category=category)
   return [Observation(**o) for o in result.data]
 
 
 @router.get("/{patient_id}/growth")
-async def get_patient_growth(patient_id: str) -> list[GrowthData]:
+async def get_patient_growth(
+  patient_id: str,
+  current_user: CurrentUser = Depends(get_current_user),
+) -> list[GrowthData]:
   """Get patient's growth data."""
   db = SupabaseDB()
+  db.get_patient(patient_id, user_id=current_user.id)
   result = db.get_patient_growth(patient_id)
   return [GrowthData(**g) for g in result.data]
 
 
 @router.get("/{patient_id}/messages")
-async def get_patient_messages(patient_id: str):
+async def get_patient_messages(
+  patient_id: str,
+  current_user: CurrentUser = Depends(get_current_user),
+):
   """Get patient's messages."""
   db = SupabaseDB()
+  db.get_patient(patient_id, user_id=current_user.id)
   result = db.get_patient_messages(patient_id)
   return result.data
